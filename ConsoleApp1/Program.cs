@@ -1,7 +1,15 @@
 ﻿using ConsoleApp1.Models;
+using SixLabors.Fonts;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp;
 using System.Management;
 using System.Net;
 using System.Text;
+using SixLabors.ImageSharp.Drawing.Processing;
+using SixLabors.ImageSharp.Processing;
+using SysInfoConsole.Domain;
+using SysInfoConsole.Services;
+using System.Text.RegularExpressions;
 
 
 PrintOntoBackground();
@@ -22,48 +30,80 @@ static void PrintOntoBackground()
         File.Copy(currentBgPath, initBgPath, true);
     }
 
+    Console.WriteLine("Loading Data...");
+    ISysInfoTable sysInfoTable = new SysInfoService();
+
+    Console.WriteLine("Loading Done!");
 
 
-
-
-    var dict0 = new Dictionary<string, string>();
-    dict0.Add("Win32_NetworkAdapterConfiguration", "Network.");
-    dict0.Add("Win32_OperatingSystem", "Host.");
-    dict0.Add("Win32_Processor", "CPU.");
-    dict0.Add("Win32_LogicalDisk", "Disk.");
-
-    // Get the WMI class
-    var dict = new Dictionary<string, string[]>();
-    dict.Add("Win32_NetworkAdapterConfiguration", new string[] { "IPAddress" });
-    dict.Add("Win32_OperatingSystem", new string[] { "CSName" });
-    dict.Add("Win32_Processor", new string[] { "Name" });
-    dict.Add("Win32_LogicalDisk", new string[] { "DeviceID", "FreeSpace" });
-
-    StringBuilder sb1 = new StringBuilder();
-    StringBuilder sb2 = new StringBuilder();
-    foreach (var key in dict.Keys)
+    // Load an image
+    using (var image = Image.Load<Rgba32>(initBgPath))
     {
-        var win32class = new Win32Class(key, dict[key]);
-        foreach (PropertyData property in win32class.Properties)
-        {
-            sb1.Append(dict0[key]);
-            sb1.AppendLine(property.Name);
+        // Create a font
+        string fontPath = Path.Combine(programDirectory, @"Roboto\Roboto-Light.ttf");
 
-            sb2.Append(": ");
-            sb2.AppendLine(win32class.GetPropertyValue(property));
-        }
+        var fontCollection = new FontCollection();
+        fontCollection.Add(fontPath);
+        var font = fontCollection.Get("Roboto Light");
+
+        var primaryFont = font.CreateFont(24);
+        var primaryColor = Color.Yellow;
+        var secondaryColor = Color.White;
+        var converter = new DataConverter();
+
+        float x1 = 1200;
+        float y = 800;
+        float x2 = 1400;
+        float deltaY = 30;
+
+
+        // Add the text to the image
+        image.Mutate(ctx => ctx.DrawText("Host Name", font.CreateFont(24), primaryColor, new PointF(x1, y) ));
+        image.Mutate(ctx => ctx.DrawText(sysInfoTable.HostName, font.CreateFont(24), primaryColor, new PointF(x2, y) ));
+        y += 20 + deltaY;
+
+        image.Mutate(ctx => ctx.DrawText("IP Address", font.CreateFont(22), secondaryColor, new PointF(x1, y)));
+        image.Mutate(ctx => ctx.DrawText(converter.ConvertToIPv4(sysInfoTable.IPAddress), font.CreateFont(22), secondaryColor, new PointF(x2, y)));
+        y += deltaY;
+
+        image.Mutate(ctx => ctx.DrawText("CPU", font.CreateFont(22), secondaryColor, new PointF(x1, y)));
+        image.Mutate(ctx => ctx.DrawText(sysInfoTable.CPuName, font.CreateFont(22), secondaryColor, new PointF(x2, y)));
+        y += deltaY;
+
+        image.Mutate(ctx => ctx.DrawText("C:\\ Free Space", font.CreateFont(22), secondaryColor, new PointF(x1, y)));
+        image.Mutate(ctx => ctx.DrawText(converter.ConvertBytesToGigabytes(sysInfoTable.FreeSpaceDiskC), font.CreateFont(22), secondaryColor, new PointF(x2, y)));
+        y += deltaY;
+
+
+        image.Save(sysInfoBgPath);
     }
 
 
 
-    Console.WriteLine(sb1);
-    Console.WriteLine(sb2);
-    //Console.WriteLine(initBgPath);
-
-
-    var adjustImage = new DrawImageService();
-    adjustImage.DrawText(initBgPath, sysInfoBgPath, sb1.ToString(), new SixLabors.ImageSharp.PointF(1200, 100));
-    adjustImage.DrawText(sysInfoBgPath, sysInfoBgPath, sb2.ToString(), new SixLabors.ImageSharp.PointF(1400, 100));
-
     wallService.SetBackground(sysInfoBgPath);
+}
+
+class DataConverter()
+{
+    public string ConvertToIPv4(string ipAddress)
+    {
+        Match m = Regex.Match(ipAddress, @"\b\d+\.\d+\.\d+\.\d+\b");
+        if (m.Success)
+        {
+            return m.Value;
+        }
+
+        return ipAddress;
+    }
+
+    public string ConvertBytesToGigabytes(string bytes)
+    {
+        if(double.TryParse(bytes, out var bytesVal))
+        {
+            bytesVal = Math.Round(bytesVal / 1073741824, 2);
+            return bytesVal.ToString() + " GB";
+        }
+
+        return bytes + " GB";
+    }
 }
